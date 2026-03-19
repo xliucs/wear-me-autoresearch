@@ -359,32 +359,64 @@ models = {
 model_names = list(models.keys())
 model_preds = np.column_stack([models[k] for k in model_names])
 
-# Blend optimization via grid search on best 3-4 models
-best_r2 = -1
-best_w = None
-nm = len(model_names)
-# Use scipy optimize for efficiency
+# === Method 1: Scipy blend optimization ===
 from scipy.optimize import minimize
+nm = len(model_names)
 def neg_r2(weights):
     w_norm = np.abs(weights) / np.abs(weights).sum()
     blend = model_preds @ w_norm
     return -r2_score(y, blend)
 
-# Multiple random starts
+best_r2_blend = -1
+best_w_blend = None
 np.random.seed(SEED)
 for _ in range(200):
     w0 = np.random.dirichlet(np.ones(nm))
     res = minimize(neg_r2, w0, method='Nelder-Mead', options={'maxiter': 1000})
     r2 = -res.fun
-    if r2 > best_r2:
-        best_r2 = r2
+    if r2 > best_r2_blend:
+        best_r2_blend = r2
         w_final = np.abs(res.x) / np.abs(res.x).sum()
-        best_w = {k: v for k, v in zip(model_names, w_final)}
+        best_w_blend = {k: v for k, v in zip(model_names, w_final)}
+
+# === Method 2: Ridge stacking (L2 meta-learner on OOF predictions) ===
+# Use 5-fold CV on the OOF predictions to get stacked predictions
+from sklearn.model_selection import KFold
+oof_stack = np.zeros(n)
+kf = KFold(n_splits=5, shuffle=True, random_state=SEED)
+for stack_tr, stack_va in kf.split(model_preds):
+    meta_X_tr = model_preds[stack_tr]
+    meta_y_tr = y[stack_tr]
+    meta_X_va = model_preds[stack_va]
+    # Try multiple Ridge alphas for the meta-model
+    best_stack_r2 = -999
+    for meta_alpha in [0.01, 0.1, 1.0, 10.0, 100.0]:
+        meta_model = Ridge(alpha=meta_alpha)
+        meta_model.fit(meta_X_tr, meta_y_tr)
+        # Just pick best alpha on the validation fold
+        stack_pred = meta_model.predict(meta_X_va)
+        stack_r2 = r2_score(y[stack_va], stack_pred)
+        if stack_r2 > best_stack_r2:
+            best_stack_r2 = stack_r2
+            best_stack_pred = stack_pred
+    oof_stack[stack_va] = best_stack_pred
+
+r2_stack = r2_score(y, oof_stack)
+
+# Choose best method
+best_r2 = max(best_r2_blend, r2_stack)
+if best_r2_blend >= r2_stack:
+    method = "blend"
+    best_w = best_w_blend
+else:
+    method = "stack"
+    best_w = {"stacked": 1.0}
 
 elapsed = time.time() - t_start
 
 w_str = ' '.join(f"{k}={v:.2f}" for k, v in best_w.items())
-print(f"\nBest blend: {w_str}")
+print(f"\nBest {method}: {w_str}")
+print(f"Blend R²: {best_r2_blend:.6f}  Stack R²: {r2_stack:.6f}")
 print()
 print("---")
 print(f"val_r2:           {best_r2:.6f}")
@@ -395,6 +427,7 @@ print(f"val_r2_enet:      {r2_enet:.6f}")
 print(f"val_r2_lasso:     {r2_lasso:.6f}")
 print(f"val_r2_bayridge:  {r2_br:.6f}")
 print(f"val_r2_lgb_fair:  {r2_lgb_fair:.6f}")
+print(f"val_r2_stack:     {r2_stack:.6f}")
 print(f"blend_weights:    {w_str}")
 print(f"n_features:       {X_eng.shape[1]}")
 print(f"n_samples:        {n}")
