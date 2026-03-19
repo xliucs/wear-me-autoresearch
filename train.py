@@ -217,28 +217,28 @@ inv_log = np.expm1
 # ============================================================
 def make_xgb_params():
     return dict(
-        n_estimators=1200, max_depth=3, learning_rate=0.01,
-        subsample=0.8, colsample_bytree=0.6,
-        reg_alpha=2.0, reg_lambda=10.0, min_child_weight=8,
-        gamma=8.0,
+        n_estimators=1500, max_depth=4, learning_rate=0.008,
+        subsample=0.8, colsample_bytree=0.7,
+        reg_alpha=1.0, reg_lambda=5.0, min_child_weight=6,
+        gamma=5.0,
         random_state=SEED, n_jobs=-1
     )
 
 def make_lgb_params():
     return dict(
-        n_estimators=1500, num_leaves=15, learning_rate=0.008,
-        subsample=0.7, colsample_bytree=0.5, feature_fraction_bynode=0.5,
-        reg_alpha=3.0, reg_lambda=15.0, min_child_weight=10,
-        min_data_in_leaf=25,
+        n_estimators=2000, num_leaves=20, learning_rate=0.006,
+        subsample=0.75, colsample_bytree=0.6,
+        reg_alpha=2.0, reg_lambda=10.0, min_child_weight=8,
+        min_data_in_leaf=20,
         random_state=SEED, n_jobs=-1, verbose=-1
     )
 
 def make_lgb_fair_params():
     return dict(
-        n_estimators=1500, num_leaves=15, learning_rate=0.008,
-        subsample=0.7, colsample_bytree=0.5,
-        reg_alpha=3.0, reg_lambda=15.0, min_child_weight=10,
-        min_data_in_leaf=25, objective='fair',
+        n_estimators=2000, num_leaves=20, learning_rate=0.006,
+        subsample=0.75, colsample_bytree=0.6,
+        reg_alpha=2.0, reg_lambda=10.0, min_child_weight=8,
+        min_data_in_leaf=20, objective='fair',
         random_state=SEED + 1, n_jobs=-1, verbose=-1
     )
 
