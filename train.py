@@ -231,7 +231,7 @@ r2_enet = r2_score(y, oof_enet)
 print(f"\nSingle model R²: XGB={r2_xgb:.4f} LGB={r2_lgb:.4f} ElasticNet={r2_enet:.4f}")
 
 # Clip predictions to reasonable range (use percentiles)
-y_lo, y_hi = np.percentile(y, 0.5), np.percentile(y, 99.5)
+y_lo, y_hi = np.percentile(y, 0.25), np.percentile(y, 99.75)
 oof_xgb = np.clip(oof_xgb, y_lo, y_hi)
 oof_lgb = np.clip(oof_lgb, y_lo, y_hi)
 oof_enet = np.clip(oof_enet, y_lo, y_hi)
