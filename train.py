@@ -21,7 +21,7 @@ import sys
 warnings.filterwarnings('ignore')
 
 from prepare import load_data, get_feature_sets, get_cv_splits, engineer_all_features
-from sklearn.preprocessing import StandardScaler, QuantileTransformer
+from sklearn.preprocessing import StandardScaler, QuantileTransformer, PowerTransformer
 from sklearn.linear_model import ElasticNet, Ridge
 from sklearn.metrics import r2_score
 import xgboost as xgb
@@ -208,10 +208,13 @@ for fold_idx, (tr_idx, va_idx) in enumerate(splits):
         pred_lgb = inv_log(pred_lgb)
     oof_lgb[va_idx] = pred_lgb
 
-    # ElasticNet (with QT features + sample weights)
+    # ElasticNet (with PowerTransformer features + sample weights)
+    pt = PowerTransformer(method='yeo-johnson')
+    X_tr_pt = pt.fit_transform(X_tr)
+    X_va_pt = pt.transform(X_va)
     enet_model = ElasticNet(**make_elasticnet_params())
-    enet_model.fit(X_tr_qt, y_tr, sample_weight=w_tr)
-    pred_enet = enet_model.predict(X_va_qt)
+    enet_model.fit(X_tr_pt, y_tr, sample_weight=w_tr)
+    pred_enet = enet_model.predict(X_va_pt)
     if LOG_TARGET:
         pred_enet = inv_log(pred_enet)
     oof_enet[va_idx] = pred_enet
@@ -230,28 +233,8 @@ r2_enet = r2_score(y, oof_enet)
 
 print(f"\nSingle model R²: XGB={r2_xgb:.4f} LGB={r2_lgb:.4f} ElasticNet={r2_enet:.4f}")
 
-# Clip predictions to reasonable range — search for best percentile
-best_clip_r2 = -1
-best_clip_lo = 0
-best_clip_hi = 100
-for lo_pct in [0, 0.1, 0.25, 0.5, 1.0]:
-    for hi_pct in [99.0, 99.5, 99.75, 99.9, 100]:
-        y_lo_t = np.percentile(y, lo_pct) if lo_pct > 0 else -1e10
-        y_hi_t = np.percentile(y, hi_pct) if hi_pct < 100 else 1e10
-        clip_lgb = np.clip(oof_lgb, y_lo_t, y_hi_t)
-        clip_enet = np.clip(oof_enet, y_lo_t, y_hi_t)
-        for w_l in np.arange(0.4, 0.81, 0.05):
-            w_e = 1 - w_l
-            bl = w_l * clip_lgb + w_e * clip_enet
-            r2_t = r2_score(y, bl)
-            if r2_t > best_clip_r2:
-                best_clip_r2 = r2_t
-                best_clip_lo = lo_pct
-                best_clip_hi = hi_pct
-
-y_lo = np.percentile(y, best_clip_lo) if best_clip_lo > 0 else -1e10
-y_hi = np.percentile(y, best_clip_hi) if best_clip_hi < 100 else 1e10
-print(f"Best clip percentiles: {best_clip_lo}-{best_clip_hi}")
+# Clip predictions to reasonable range
+y_lo, y_hi = np.percentile(y, 0.5), np.percentile(y, 99.75)
 oof_xgb = np.clip(oof_xgb, y_lo, y_hi)
 oof_lgb = np.clip(oof_lgb, y_lo, y_hi)
 oof_enet = np.clip(oof_enet, y_lo, y_hi)
