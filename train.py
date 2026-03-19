@@ -146,7 +146,7 @@ def make_xgb_params():
     return dict(
         n_estimators=2500, max_depth=3, learning_rate=0.005,
         subsample=0.8, colsample_bytree=0.7,
-        reg_alpha=2.0, reg_lambda=10.0, min_child_weight=5,
+        reg_alpha=5.0, reg_lambda=20.0, min_child_weight=5,
         random_state=SEED, n_jobs=-1
     )
 
