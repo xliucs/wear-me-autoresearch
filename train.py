@@ -200,10 +200,10 @@ for fold_idx, (tr_idx, va_idx) in enumerate(splits):
         pred_xgb = inv_log(pred_xgb)
     oof_xgb[va_idx] = pred_xgb
 
-    # LightGBM with QuantileTransformer inputs
+    # LightGBM with raw features
     lgb_model = lgb.LGBMRegressor(**make_lgb_params())
-    lgb_model.fit(X_tr_qt, y_tr, sample_weight=w_tr)
-    pred_lgb = lgb_model.predict(X_va_qt)
+    lgb_model.fit(X_tr, y_tr, sample_weight=w_tr)
+    pred_lgb = lgb_model.predict(X_va)
     if LOG_TARGET:
         pred_lgb = inv_log(pred_lgb)
     oof_lgb[va_idx] = pred_lgb
