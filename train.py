@@ -144,7 +144,7 @@ inv_log = np.expm1
 # ============================================================
 def make_xgb_params():
     return dict(
-        n_estimators=612, max_depth=4, learning_rate=0.017,
+        n_estimators=800, max_depth=3, learning_rate=0.015,
         subsample=0.8, colsample_bytree=0.7,
         reg_alpha=0.5, reg_lambda=2.0, min_child_weight=5,
         random_state=SEED, n_jobs=-1
