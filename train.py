@@ -207,9 +207,9 @@ for fold_idx, (tr_idx, va_idx) in enumerate(splits):
         pred_lgb = inv_log(pred_lgb)
     oof_lgb[va_idx] = pred_lgb
 
-    # ElasticNet (with QT features for better linear fit)
+    # ElasticNet (with QT features + sample weights)
     enet_model = ElasticNet(**make_elasticnet_params())
-    enet_model.fit(X_tr_qt, y_tr)
+    enet_model.fit(X_tr_qt, y_tr, sample_weight=w_tr)
     pred_enet = enet_model.predict(X_va_qt)
     if LOG_TARGET:
         pred_enet = inv_log(pred_enet)
