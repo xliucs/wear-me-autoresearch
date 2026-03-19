@@ -230,6 +230,12 @@ r2_enet = r2_score(y, oof_enet)
 
 print(f"\nSingle model R²: XGB={r2_xgb:.4f} LGB={r2_lgb:.4f} ElasticNet={r2_enet:.4f}")
 
+# Clip predictions to reasonable range
+y_min, y_max = y.min(), y.max()
+oof_xgb = np.clip(oof_xgb, y_min * 0.5, y_max * 1.2)
+oof_lgb = np.clip(oof_lgb, y_min * 0.5, y_max * 1.2)
+oof_enet = np.clip(oof_enet, y_min * 0.5, y_max * 1.2)
+
 # Blend optimization (grid search)
 best_r2 = -1
 best_w = None
