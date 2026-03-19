@@ -1,0 +1,8 @@
+data.csv
+__pycache__/
+*.pyc
+.DS_Store
+*.pkl
+*.joblib
+run.log
+results.tsv
