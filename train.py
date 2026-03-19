@@ -195,7 +195,7 @@ eng_cols_full = X_eng_full.columns.tolist()
 # Feature selection via Lasso on full data (not leaky: just finding which features correlate)
 from sklearn.pipeline import Pipeline
 pt_sel = PowerTransformer(method='yeo-johnson')
-lasso_sel = Lasso(alpha=0.005, max_iter=10000)
+lasso_sel = Lasso(alpha=0.003, max_iter=10000)
 X_pt_sel = pt_sel.fit_transform(X_eng_full.values)
 lasso_sel.fit(X_pt_sel, np.log1p(y_train))
 selected_mask = np.abs(lasso_sel.coef_) > 1e-6
