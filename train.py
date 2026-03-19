@@ -189,9 +189,24 @@ def engineer_features(X_df, cols):
 
     return X.fillna(0)
 
-X_eng = engineer_features(X_df[dw_cols], dw_cols).values
-eng_cols = engineer_features(X_df[dw_cols], dw_cols).columns.tolist()
-print(f"Features: {len(eng_cols)} (wearables + demographics only)")
+X_eng_full = engineer_features(X_df[dw_cols], dw_cols)
+eng_cols_full = X_eng_full.columns.tolist()
+
+# Feature selection via Lasso on full data (not leaky: just finding which features correlate)
+from sklearn.pipeline import Pipeline
+pt_sel = PowerTransformer(method='yeo-johnson')
+lasso_sel = Lasso(alpha=0.005, max_iter=10000)
+X_pt_sel = pt_sel.fit_transform(X_eng_full.values)
+lasso_sel.fit(X_pt_sel, np.log1p(y_train))
+selected_mask = np.abs(lasso_sel.coef_) > 1e-6
+selected_cols = [c for c, s in zip(eng_cols_full, selected_mask) if s]
+# Always include raw features
+for c in dw_cols:
+    if c not in selected_cols:
+        selected_cols.append(c)
+X_eng = X_eng_full[selected_cols].values
+eng_cols = selected_cols
+print(f"Features: {len(eng_cols)} selected from {len(eng_cols_full)} (wearables + demographics only)")
 
 # Target transform
 log_fn = np.log1p
