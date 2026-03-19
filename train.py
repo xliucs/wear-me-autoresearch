@@ -152,9 +152,9 @@ def make_xgb_params():
 
 def make_lgb_params():
     return dict(
-        n_estimators=600, max_depth=4, learning_rate=0.02,
+        n_estimators=2500, num_leaves=8, learning_rate=0.005,
         subsample=0.8, colsample_bytree=0.7,
-        reg_alpha=0.5, reg_lambda=2.0, min_child_weight=5,
+        reg_alpha=5.0, reg_lambda=20.0, min_child_weight=12,
         random_state=SEED, n_jobs=-1, verbose=-1
     )
 
