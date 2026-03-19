@@ -182,7 +182,7 @@ for fold_idx, (tr_idx, va_idx) in enumerate(splits):
         y_va = y_va_raw
 
     # QuantileTransformer on inputs for LGB
-    qt = QuantileTransformer(n_quantiles=200, output_distribution='normal', random_state=SEED)
+    qt = QuantileTransformer(n_quantiles=100, output_distribution='normal', random_state=SEED)
     X_tr_qt = qt.fit_transform(X_tr)
     X_va_qt = qt.transform(X_va)
 
