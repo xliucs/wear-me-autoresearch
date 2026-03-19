@@ -243,13 +243,13 @@ def make_lgb_fair_params():
     )
 
 def make_ridge_params():
-    return dict(alpha=5.0)
+    return dict(alpha=3.0)
 
 def make_enet_params():
-    return dict(alpha=0.03, l1_ratio=0.5, max_iter=10000)
+    return dict(alpha=0.025, l1_ratio=0.4, max_iter=10000)
 
 def make_lasso_params():
-    return dict(alpha=0.003, max_iter=10000)
+    return dict(alpha=0.002, max_iter=10000)
 
 # ============================================================
 # CROSS-VALIDATION
