@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-WEAR-ME AutoResearch: HOMA-IR Prediction from WEARABLES + DEMOGRAPHICS ONLY (Model B)
-No blood biomarkers allowed!
+WEAR-ME AutoResearch: HOMA-IR Prediction from Wearables + Blood Biomarkers
 
 This is the file the agent modifies. Everything is fair game:
-- Feature engineering (from demographics + wearables only)
+- Feature engineering
 - Model architecture (XGBoost, LightGBM, ElasticNet, etc.)
 - Hyperparameters
 - Blending strategies
@@ -12,8 +11,7 @@ This is the file the agent modifies. Everything is fair game:
 - Sample weighting
 - Preprocessing
 
-Current best Model B R² = 0.2592 (V20: XGB Optuna wsqrt)
-Features available: age, bmi, sex_num + 15 wearable stats (RHR, HRV, STEPS, SLEEP, AZM)
+Current best R² = 0.5467 (V20 blend: LGB_QT 71% + ElasticNet 29%)
 """
 import numpy as np
 import pandas as pd
@@ -22,9 +20,9 @@ import warnings
 import sys
 warnings.filterwarnings('ignore')
 
-from prepare import load_data, get_feature_sets, get_cv_splits
+from prepare import load_data, get_feature_sets, get_cv_splits, engineer_all_features
 from sklearn.preprocessing import StandardScaler, QuantileTransformer, PowerTransformer
-from sklearn.linear_model import ElasticNet, Ridge, Lasso
+from sklearn.linear_model import ElasticNet, Ridge
 from sklearn.metrics import r2_score
 import xgboost as xgb
 import lightgbm as lgb
@@ -33,15 +31,16 @@ import lightgbm as lgb
 # CONFIG
 # ============================================================
 SEED = 42
-LOG_TARGET = True
-SAMPLE_WEIGHT_EXP = 0.5
+N_SPLITS = 5  # from get_cv_splits
+LOG_TARGET = True  # log1p transform on y
+SAMPLE_WEIGHT_EXP = 0.5  # sqrt(y) weighting
 
 # ============================================================
 # DATA
 # ============================================================
 t_start = time.time()
 print("=" * 60)
-print("  WEAR-ME AutoResearch: WEARABLES-ONLY (Model B)")
+print("  WEAR-ME AutoResearch Experiment")
 print("=" * 60)
 sys.stdout.flush()
 
@@ -55,77 +54,86 @@ w = np.power(y, SAMPLE_WEIGHT_EXP)
 w = w / w.mean()
 
 # ============================================================
-# FEATURE ENGINEERING (wearables + demographics only!)
+# FEATURE ENGINEERING
 # ============================================================
 def engineer_features(X_df, cols):
-    """Engineer features from demographics + wearables only. No blood!"""
+    """Engineer features from raw data. Agent can modify this freely."""
     X = X_df[cols].copy()
+    g = X['glucose'].clip(lower=1)
+    t = X['triglycerides'].clip(lower=1)
+    h = X['hdl'].clip(lower=1)
     b = X['bmi']
+    l = X['ldl']
+    tc = X['total cholesterol']
+    nh = X['non hdl']
+    ch = X['chol/hdl']
     a = X['age']
-    s = X['sex_num'] if 'sex_num' in X.columns else pd.Series(0, index=X.index)
 
-    rhr_m = X['Resting Heart Rate (mean)']
-    rhr_md = X['Resting Heart Rate (median)']
-    rhr_s = X['Resting Heart Rate (std)']
-    hrv_m = X['HRV (mean)']
-    hrv_md = X['HRV (median)']
-    hrv_s = X['HRV (std)']
-    stp_m = X['STEPS (mean)']
-    stp_md = X['STEPS (median)']
-    stp_s = X['STEPS (std)']
-    slp_m = X['SLEEP Duration (mean)']
-    slp_md = X['SLEEP Duration (median)']
-    slp_s = X['SLEEP Duration (std)']
-    azm_m = X['AZM Weekly (mean)']
-    azm_md = X['AZM Weekly (median)']
-    azm_s = X['AZM Weekly (std)']
+    # Metabolic indices
+    X['tyg'] = np.log(t * g / 2)
+    X['tyg_bmi'] = np.log(t * g / 2) * b
+    X['mets_ir'] = np.log(2 * g + t) * b / np.log(h)
+    X['trig_hdl'] = t / h
+    X['trig_hdl_log'] = np.log1p(t / h)
+    X['vat_proxy'] = b * t / h
+    X['ir_proxy'] = g * b * t / (h * 100)
+
+    # Glucose interactions
+    X['glucose_bmi'] = g * b
+    X['glucose_sq'] = g ** 2
+    X['glucose_log'] = np.log(g)
+    X['glucose_hdl'] = g / h
+    X['glucose_trig'] = g * t / 1000
+    X['glucose_non_hdl'] = g * nh / 100
+    X['glucose_chol_hdl'] = g * ch
 
     # BMI interactions
     X['bmi_sq'] = b ** 2
     X['bmi_log'] = np.log(b.clip(lower=1))
+    X['bmi_trig'] = b * t / 100
+    X['bmi_hdl_inv'] = b / h
     X['bmi_age'] = b * a
 
-    # BMI x wearable interactions
-    X['bmi_rhr'] = b * rhr_m
-    X['bmi_hrv_inv'] = b / hrv_m.clip(lower=1)
-    X['bmi_steps_inv'] = b / stp_m.clip(lower=1) * 1000
-    X['bmi_sleep'] = b * slp_m
-    X['bmi_azm_inv'] = b / azm_m.clip(lower=1)
+    # Lipid ratios
+    X['ldl_hdl'] = l / h
+    X['non_hdl_ratio'] = nh / h
+    X['tc_hdl_bmi'] = tc / h * b
+    X['trig_tc'] = t / tc.clip(lower=1)
 
-    # Cardio fitness proxies
-    X['cardio_fitness'] = hrv_m * stp_m / rhr_m.clip(lower=1)
-    X['met_load'] = b * rhr_m / stp_m.clip(lower=1) * 1000
-    X['rhr_hrv_ratio'] = rhr_m / hrv_m.clip(lower=1)
-    X['autonomic_balance'] = hrv_m / rhr_m.clip(lower=1)
+    # Squared terms
+    X['tyg_sq'] = X['tyg'] ** 2
+    X['mets_ir_sq'] = X['mets_ir'] ** 2
+    X['trig_hdl_sq'] = X['trig_hdl'] ** 2
+    X['vat_sq'] = X['vat_proxy'] ** 2
+    X['ir_proxy_sq'] = X['ir_proxy'] ** 2
+    X['ir_proxy_log'] = np.log1p(X['ir_proxy'])
 
-    # Variability (CV = std/mean)
-    X['rhr_cv'] = rhr_s / rhr_m.clip(lower=0.01)
-    X['hrv_cv'] = hrv_s / hrv_m.clip(lower=0.01)
-    X['steps_cv'] = stp_s / stp_m.clip(lower=0.01)
-    X['sleep_cv'] = slp_s / slp_m.clip(lower=0.01)
-    X['azm_cv'] = azm_s / azm_m.clip(lower=0.01)
-
-    # Activity level
-    X['active_score'] = stp_m * azm_m / 1000
-    X['sedentary_proxy'] = b * rhr_m / (stp_m.clip(lower=1) * azm_m.clip(lower=1)) * 1e6
-
-    # Age interactions
-    X['age_rhr'] = a * rhr_m
-    X['age_hrv'] = a * hrv_m
-    X['age_bmi_rhr'] = a * b * rhr_m / 1000
+    # Wearable interactions (if available)
+    rhr = 'Resting Heart Rate (mean)'
+    hrv = 'HRV (mean)'
+    stp = 'STEPS (mean)'
+    if rhr in X.columns:
+        X['bmi_rhr'] = b * X[rhr]
+        X['glucose_rhr'] = g * X[rhr]
+        X['trig_hdl_rhr'] = X['trig_hdl'] * X[rhr]
+        X['ir_proxy_rhr'] = X['ir_proxy'] * X[rhr] / 100
+        X['tyg_rhr'] = X['tyg'] * X[rhr]
+        X['mets_rhr'] = X['mets_ir'] * X[rhr]
+        X['bmi_hrv_inv'] = b / X[hrv].clip(lower=1)
+        X['cardio_fitness'] = X[hrv] * X[stp] / X[rhr].clip(lower=1)
+        X['met_load'] = b * X[rhr] / X[stp].clip(lower=1) * 1000
 
     # Log transforms
+    X['log_glucose'] = np.log(g)
+    X['log_trig'] = np.log(t)
     X['log_bmi'] = np.log(b.clip(lower=1))
-    X['log_rhr'] = np.log(rhr_m.clip(lower=1))
-    X['log_hrv'] = np.log(hrv_m.clip(lower=1))
-    X['log_steps'] = np.log(stp_m.clip(lower=1))
-    X['log_sleep'] = np.log(slp_m.clip(lower=1))
+    X['log_hdl'] = np.log(h)
+    X['log_homa_proxy'] = np.log(g) + np.log(b.clip(lower=1)) + np.log(t) - np.log(h)
 
     return X.fillna(0)
 
-X_eng = engineer_features(X_df[dw_cols], dw_cols).values
-eng_cols = engineer_features(X_df[dw_cols], dw_cols).columns.tolist()
-print(f"Features: {len(eng_cols)} (wearables + demographics only)")
+X_eng = engineer_features(X_df[all_cols], all_cols).values
+eng_cols = engineer_features(X_df[all_cols], all_cols).columns.tolist()
 
 # Target transform
 log_fn = np.log1p
@@ -136,23 +144,23 @@ inv_log = np.expm1
 # ============================================================
 def make_xgb_params():
     return dict(
-        n_estimators=800, max_depth=3, learning_rate=0.015,
+        n_estimators=3500, max_depth=3, learning_rate=0.003,
         subsample=0.8, colsample_bytree=0.7,
-        reg_alpha=2.0, reg_lambda=10.0, min_child_weight=8,
-        gamma=10.0,
+        reg_alpha=5.0, reg_lambda=20.0, min_child_weight=12,
+        gamma=100.0,
         random_state=SEED, n_jobs=-1
     )
 
 def make_lgb_params():
     return dict(
-        n_estimators=800, num_leaves=12, learning_rate=0.015,
+        n_estimators=3500, num_leaves=12, learning_rate=0.003,
         subsample=0.8, colsample_bytree=0.7,
-        reg_alpha=2.0, reg_lambda=10.0, min_child_weight=8,
+        reg_alpha=5.0, reg_lambda=20.0, min_child_weight=12,
         random_state=SEED, n_jobs=-1, verbose=-1
     )
 
 def make_elasticnet_params():
-    return dict(alpha=0.01, l1_ratio=0.5, max_iter=10000)
+    return dict(alpha=0.005, l1_ratio=1.0, max_iter=10000)
 
 # ============================================================
 # CROSS-VALIDATION
@@ -166,10 +174,18 @@ for fold_idx, (tr_idx, va_idx) in enumerate(splits):
     y_tr_raw, y_va_raw = y[tr_idx], y[va_idx]
     w_tr = w[tr_idx]
 
+    # Target transform
     if LOG_TARGET:
         y_tr = log_fn(y_tr_raw)
+        y_va = log_fn(y_va_raw)
     else:
         y_tr = y_tr_raw
+        y_va = y_va_raw
+
+    # QuantileTransformer on inputs for LGB
+    qt = QuantileTransformer(n_quantiles=100, output_distribution='normal', random_state=SEED)
+    X_tr_qt = qt.fit_transform(X_tr)
+    X_va_qt = qt.transform(X_va)
 
     # StandardScaler for ElasticNet
     sc = StandardScaler()
@@ -184,7 +200,7 @@ for fold_idx, (tr_idx, va_idx) in enumerate(splits):
         pred_xgb = inv_log(pred_xgb)
     oof_xgb[va_idx] = pred_xgb
 
-    # LightGBM
+    # LightGBM with raw features
     lgb_model = lgb.LGBMRegressor(**make_lgb_params())
     lgb_model.fit(X_tr, y_tr, sample_weight=w_tr)
     pred_lgb = lgb_model.predict(X_va)
@@ -192,10 +208,13 @@ for fold_idx, (tr_idx, va_idx) in enumerate(splits):
         pred_lgb = inv_log(pred_lgb)
     oof_lgb[va_idx] = pred_lgb
 
-    # ElasticNet
+    # ElasticNet (with PowerTransformer features + sample weights)
+    pt = PowerTransformer(method='yeo-johnson')
+    X_tr_pt = pt.fit_transform(X_tr)
+    X_va_pt = pt.transform(X_va)
     enet_model = ElasticNet(**make_elasticnet_params())
-    enet_model.fit(X_tr_sc, y_tr, sample_weight=w_tr)
-    pred_enet = enet_model.predict(X_va_sc)
+    enet_model.fit(X_tr_pt, y_tr, sample_weight=w_tr)
+    pred_enet = enet_model.predict(X_va_pt)
     if LOG_TARGET:
         pred_enet = inv_log(pred_enet)
     oof_enet[va_idx] = pred_enet
@@ -214,13 +233,13 @@ r2_enet = r2_score(y, oof_enet)
 
 print(f"\nSingle model R²: XGB={r2_xgb:.4f} LGB={r2_lgb:.4f} ElasticNet={r2_enet:.4f}")
 
-# Clip predictions
+# Clip predictions to reasonable range
 y_lo, y_hi = np.percentile(y, 0.5), np.percentile(y, 99.75)
 oof_xgb = np.clip(oof_xgb, y_lo, y_hi)
 oof_lgb = np.clip(oof_lgb, y_lo, y_hi)
 oof_enet = np.clip(oof_enet, y_lo, y_hi)
 
-# Blend optimization
+# Blend optimization (grid search)
 best_r2 = -1
 best_w = None
 for w_lgb in np.arange(0, 1.01, 0.01):
@@ -245,3 +264,4 @@ print(f"blend_weights:    XGB={best_w[0]:.2f} LGB={best_w[1]:.2f} EN={best_w[2]:
 print(f"n_features:       {X_eng.shape[1]}")
 print(f"n_samples:        {n}")
 print(f"total_seconds:    {elapsed:.1f}")
+print(f"n_splits:         {N_SPLITS}")
