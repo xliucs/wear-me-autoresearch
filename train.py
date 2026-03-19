@@ -198,26 +198,30 @@ inv_log = np.expm1
 # ============================================================
 def make_xgb_params():
     return dict(
-        n_estimators=1200, max_depth=3, learning_rate=0.01,
-        subsample=0.75, colsample_bytree=0.6,
-        reg_alpha=3.0, reg_lambda=15.0, min_child_weight=10,
-        gamma=12.0,
+        n_estimators=1500, max_depth=4, learning_rate=0.008,
+        subsample=0.7, colsample_bytree=0.5,
+        reg_alpha=5.0, reg_lambda=20.0, min_child_weight=12,
+        gamma=15.0,
         random_state=SEED, n_jobs=-1
     )
 
 def make_lgb_params():
     return dict(
-        n_estimators=1200, num_leaves=15, learning_rate=0.01,
-        subsample=0.75, colsample_bytree=0.6,
-        reg_alpha=3.0, reg_lambda=15.0, min_child_weight=10,
+        n_estimators=1500, num_leaves=12, learning_rate=0.008,
+        subsample=0.7, colsample_bytree=0.5, feature_fraction_bynode=0.5,
+        reg_alpha=5.0, reg_lambda=20.0, min_child_weight=12,
+        min_data_in_leaf=30,
         random_state=SEED, n_jobs=-1, verbose=-1
     )
 
 def make_ridge_params():
-    return dict(alpha=10.0)
+    return dict(alpha=5.0)
 
 def make_enet_params():
-    return dict(alpha=0.1, l1_ratio=0.3, max_iter=10000)
+    return dict(alpha=0.05, l1_ratio=0.3, max_iter=10000)
+
+def make_lasso_params():
+    return dict(alpha=0.005, max_iter=10000)
 
 # ============================================================
 # CROSS-VALIDATION
@@ -226,6 +230,7 @@ oof_xgb = np.zeros(n)
 oof_lgb = np.zeros(n)
 oof_ridge = np.zeros(n)
 oof_enet = np.zeros(n)
+oof_lasso = np.zeros(n)
 counts = np.zeros(n)
 
 for fold_idx, (tr_idx, va_idx) in enumerate(splits):
@@ -238,12 +243,7 @@ for fold_idx, (tr_idx, va_idx) in enumerate(splits):
     else:
         y_tr = y_tr_raw
 
-    # Scalers for linear models
-    sc = StandardScaler()
-    X_tr_sc = sc.fit_transform(X_tr)
-    X_va_sc = sc.transform(X_va)
-
-    # PowerTransformer for linear models (better Gaussian approximation)
+    # PowerTransformer for linear models
     pt = PowerTransformer(method='yeo-johnson')
     X_tr_pt = pt.fit_transform(X_tr)
     X_va_pt = pt.transform(X_va)
@@ -280,6 +280,14 @@ for fold_idx, (tr_idx, va_idx) in enumerate(splits):
         pred_enet = inv_log(pred_enet)
     oof_enet[va_idx] += pred_enet
 
+    # Lasso on PowerTransformed features
+    lasso_model = Lasso(**make_lasso_params())
+    lasso_model.fit(X_tr_pt, y_tr, sample_weight=w_tr)
+    pred_lasso = lasso_model.predict(X_va_pt)
+    if LOG_TARGET:
+        pred_lasso = inv_log(pred_lasso)
+    oof_lasso[va_idx] += pred_lasso
+
     counts[va_idx] += 1
 
     if fold_idx % 5 == 4:
@@ -293,6 +301,7 @@ oof_xgb /= np.clip(counts, 1, None)
 oof_lgb /= np.clip(counts, 1, None)
 oof_ridge /= np.clip(counts, 1, None)
 oof_enet /= np.clip(counts, 1, None)
+oof_lasso /= np.clip(counts, 1, None)
 
 # ============================================================
 # RESULTS
@@ -301,50 +310,48 @@ r2_xgb = r2_score(y, oof_xgb)
 r2_lgb = r2_score(y, oof_lgb)
 r2_ridge = r2_score(y, oof_ridge)
 r2_enet = r2_score(y, oof_enet)
+r2_lasso = r2_score(y, oof_lasso)
 
-print(f"\nSingle model R²: XGB={r2_xgb:.4f} LGB={r2_lgb:.4f} Ridge={r2_ridge:.4f} EN={r2_enet:.4f}")
+print(f"\nSingle model R²: XGB={r2_xgb:.4f} LGB={r2_lgb:.4f} Ridge={r2_ridge:.4f} EN={r2_enet:.4f} Lasso={r2_lasso:.4f}")
 
 # Clip predictions
 y_lo, y_hi = np.percentile(y, 0.5), np.percentile(y, 99.5)
-oof_xgb_c = np.clip(oof_xgb, y_lo, y_hi)
-oof_lgb_c = np.clip(oof_lgb, y_lo, y_hi)
-oof_ridge_c = np.clip(oof_ridge, y_lo, y_hi)
-oof_enet_c = np.clip(oof_enet, y_lo, y_hi)
+models = {
+    'xgb': np.clip(oof_xgb, y_lo, y_hi),
+    'lgb': np.clip(oof_lgb, y_lo, y_hi),
+    'ridge': np.clip(oof_ridge, y_lo, y_hi),
+    'enet': np.clip(oof_enet, y_lo, y_hi),
+    'lasso': np.clip(oof_lasso, y_lo, y_hi),
+}
+model_names = list(models.keys())
+model_preds = np.column_stack([models[k] for k in model_names])
 
-# 4-model blend optimization
+# Blend optimization via grid search on best 3-4 models
 best_r2 = -1
 best_w = None
-# Grid search over 4 models
-for w1 in np.arange(0, 1.01, 0.05):
-    for w2 in np.arange(0, 1.01 - w1, 0.05):
-        for w3 in np.arange(0, 1.01 - w1 - w2, 0.05):
-            w4 = 1 - w1 - w2 - w3
-            blend = w1 * oof_xgb_c + w2 * oof_lgb_c + w3 * oof_ridge_c + w4 * oof_enet_c
-            r2 = r2_score(y, blend)
-            if r2 > best_r2:
-                best_r2 = r2
-                best_w = (w1, w2, w3, w4)
+nm = len(model_names)
+# Use scipy optimize for efficiency
+from scipy.optimize import minimize
+def neg_r2(weights):
+    w_norm = np.abs(weights) / np.abs(weights).sum()
+    blend = model_preds @ w_norm
+    return -r2_score(y, blend)
 
-# Fine-tune around best weights
-w1c, w2c, w3c, w4c = best_w
-for dw1 in np.arange(-0.05, 0.06, 0.01):
-    for dw2 in np.arange(-0.05, 0.06, 0.01):
-        for dw3 in np.arange(-0.05, 0.06, 0.01):
-            ww1 = max(0, w1c + dw1)
-            ww2 = max(0, w2c + dw2)
-            ww3 = max(0, w3c + dw3)
-            ww4 = max(0, 1 - ww1 - ww2 - ww3)
-            if ww1 + ww2 + ww3 > 1:
-                continue
-            blend = ww1 * oof_xgb_c + ww2 * oof_lgb_c + ww3 * oof_ridge_c + ww4 * oof_enet_c
-            r2 = r2_score(y, blend)
-            if r2 > best_r2:
-                best_r2 = r2
-                best_w = (ww1, ww2, ww3, ww4)
+# Multiple random starts
+np.random.seed(SEED)
+for _ in range(200):
+    w0 = np.random.dirichlet(np.ones(nm))
+    res = minimize(neg_r2, w0, method='Nelder-Mead', options={'maxiter': 1000})
+    r2 = -res.fun
+    if r2 > best_r2:
+        best_r2 = r2
+        w_final = np.abs(res.x) / np.abs(res.x).sum()
+        best_w = {k: v for k, v in zip(model_names, w_final)}
 
 elapsed = time.time() - t_start
 
-print(f"\nBest blend: XGB={best_w[0]:.2f} LGB={best_w[1]:.2f} Ridge={best_w[2]:.2f} EN={best_w[3]:.2f}")
+w_str = ' '.join(f"{k}={v:.2f}" for k, v in best_w.items())
+print(f"\nBest blend: {w_str}")
 print()
 print("---")
 print(f"val_r2:           {best_r2:.6f}")
@@ -352,7 +359,8 @@ print(f"val_r2_xgb:       {r2_xgb:.6f}")
 print(f"val_r2_lgb:       {r2_lgb:.6f}")
 print(f"val_r2_ridge:     {r2_ridge:.6f}")
 print(f"val_r2_enet:      {r2_enet:.6f}")
-print(f"blend_weights:    XGB={best_w[0]:.2f} LGB={best_w[1]:.2f} Ridge={best_w[2]:.2f} EN={best_w[3]:.2f}")
+print(f"val_r2_lasso:     {r2_lasso:.6f}")
+print(f"blend_weights:    {w_str}")
 print(f"n_features:       {X_eng.shape[1]}")
 print(f"n_samples:        {n}")
 print(f"total_seconds:    {elapsed:.1f}")
