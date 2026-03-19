@@ -194,7 +194,7 @@ def engineer_features(X_df, cols):
     X['bmi_over35'] = (b - 35).clip(lower=0)
 
     # === Exponential BMI ===
-    X['bmi_exp'] = np.exp((b - 25) / 10)
+    X['bmi_exp'] = np.exp(((b - 25) / 10).clip(upper=5))
 
     # === Sleep quality ===
     X['sleep_dev'] = np.abs(slp_m - 420)  # deviation from 7h in minutes
@@ -205,7 +205,12 @@ def engineer_features(X_df, cols):
     X['rhr_gap_bmi'] = (rhr_m - rhr_md) * b
     X['hrv_gap_bmi'] = (hrv_m - hrv_md) * b
 
-    return X.fillna(0).replace([np.inf, -np.inf], 0)
+    # Replace inf and clip extreme values
+    X = X.fillna(0)
+    for col in X.columns:
+        X[col] = X[col].clip(-1e10, 1e10)
+    X = X.replace([np.inf, -np.inf], 0)
+    return X
 
 X_eng_full = engineer_features(X_df[dw_cols], dw_cols)
 eng_cols_full = X_eng_full.columns.tolist()
@@ -214,7 +219,9 @@ eng_cols_full = X_eng_full.columns.tolist()
 from sklearn.pipeline import Pipeline
 pt_sel = PowerTransformer(method='yeo-johnson')
 lasso_sel = Lasso(alpha=0.003, max_iter=10000)
-X_pt_sel = pt_sel.fit_transform(X_eng_full.values)
+X_full_vals = np.nan_to_num(X_eng_full.values, nan=0, posinf=1e10, neginf=-1e10)
+X_full_vals = np.clip(X_full_vals, -1e10, 1e10)
+X_pt_sel = pt_sel.fit_transform(X_full_vals)
 lasso_sel.fit(X_pt_sel, np.log1p(y_train))
 selected_mask = np.abs(lasso_sel.coef_) > 1e-6
 selected_cols = [c for c, s in zip(eng_cols_full, selected_mask) if s]

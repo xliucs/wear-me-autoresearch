@@ -1,0 +1,20 @@
+commit	val_r2	runtime_s	status	description
+b0f13b7	0.248979	36.1	keep	baseline wearables-only
+5ffb408	0.261227	86.2	keep	exp1: fix EN+Ridge, expand features, tune trees
+c274cc3	0.264026	86.2	keep	exp2: +Lasso, scipy blend, tune LGB
+237b494	0.265767	86.2	keep	exp3: +BayesianRidge, fix XGB reg
+58968dd	0.262859	-	discard	exp5: too many features hurt linear models
+80b5281	0.266132	86.2	keep	exp6: +LGB2, tune EN/Lasso
+58968dd	0.262859	-	discard	exp5: too many noisy features
+b4cac3e	0.265469	-	discard	exp8: ElasticNetCV/XGB-Huber/KNN all bad
+72426d4	0.266182	-	discard	exp11: multi-EN same as single
+41a9f98	0.265897	-	discard	exp12: raw feats for trees hurts
+7089b1b	0.267153	86.2	keep	exp13: LGB fair loss improves blend
+af3d19c	0.267935	86.2	keep	exp15: Ridge stacking beats blending
+8c4fcf0	0.268268	86.2	keep	exp18: Winsorize target at 1/99 pct
+77f23b6	0.269467	86.2	keep	exp22: Lasso feature selection 101->39
+e442a69	0.270406	86.2	keep	exp23: Lasso alpha=0.003 -> 42 feats
+2eb4e19	0.270852	86.2	keep	exp26: tree params tuned for 42 feats
+72b6362	0.273368	-	discard	exp30: LGB DART (stacking was overfitting)
+c6ed108	0.279933	-	discard	exp32-35: stacking overfitting - per-fold alpha
+8126b15	0.270983	86.2	keep	exp36: tune Ridge/EN/Lasso params
