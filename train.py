@@ -160,7 +160,7 @@ def make_lgb_params():
     )
 
 def make_elasticnet_params():
-    return dict(alpha=0.005, l1_ratio=0.4, max_iter=10000)
+    return dict(alpha=0.005, l1_ratio=0.9, max_iter=10000)
 
 # ============================================================
 # CROSS-VALIDATION
