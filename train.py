@@ -214,12 +214,12 @@ def make_lgb_params():
         random_state=SEED, n_jobs=-1, verbose=-1
     )
 
-def make_lgb2_params():
+def make_lgb_fair_params():
     return dict(
-        n_estimators=2000, num_leaves=8, learning_rate=0.005,
-        subsample=0.8, colsample_bytree=0.6,
-        reg_alpha=1.0, reg_lambda=5.0, min_child_weight=15,
-        min_data_in_leaf=40,
+        n_estimators=1500, num_leaves=15, learning_rate=0.008,
+        subsample=0.7, colsample_bytree=0.5,
+        reg_alpha=3.0, reg_lambda=15.0, min_child_weight=10,
+        min_data_in_leaf=25, objective='fair',
         random_state=SEED + 1, n_jobs=-1, verbose=-1
     )
 
@@ -237,7 +237,7 @@ def make_lasso_params():
 # ============================================================
 oof_xgb = np.zeros(n)
 oof_lgb = np.zeros(n)
-oof_lgb2 = np.zeros(n)
+oof_lgb_fair = np.zeros(n)
 oof_ridge = np.zeros(n)
 oof_enet = np.zeros(n)
 oof_lasso = np.zeros(n)
@@ -275,13 +275,13 @@ for fold_idx, (tr_idx, va_idx) in enumerate(splits):
         pred_lgb = inv_log(pred_lgb)
     oof_lgb[va_idx] += pred_lgb
 
-    # LightGBM v2 (different architecture for diversity)
-    lgb2_model = lgb.LGBMRegressor(**make_lgb2_params())
-    lgb2_model.fit(X_tr, y_tr, sample_weight=w_tr)
-    pred_lgb2 = lgb2_model.predict(X_va)
+    # LightGBM with fair loss (robust to outliers)
+    lgb_fair = lgb.LGBMRegressor(**make_lgb_fair_params())
+    lgb_fair.fit(X_tr, y_tr, sample_weight=w_tr)
+    pred_lgb_fair = lgb_fair.predict(X_va)
     if LOG_TARGET:
-        pred_lgb2 = inv_log(pred_lgb2)
-    oof_lgb2[va_idx] += pred_lgb2
+        pred_lgb_fair = inv_log(pred_lgb_fair)
+    oof_lgb_fair[va_idx] += pred_lgb_fair
 
     # Ridge on PowerTransformed features
     ridge_model = Ridge(**make_ridge_params())
@@ -330,7 +330,7 @@ oof_ridge /= np.clip(counts, 1, None)
 oof_enet /= np.clip(counts, 1, None)
 oof_lasso /= np.clip(counts, 1, None)
 oof_bayridge /= np.clip(counts, 1, None)
-oof_lgb2 /= np.clip(counts, 1, None)
+oof_lgb_fair /= np.clip(counts, 1, None)
 
 # ============================================================
 # RESULTS
@@ -341,9 +341,9 @@ r2_ridge = r2_score(y, oof_ridge)
 r2_enet = r2_score(y, oof_enet)
 r2_lasso = r2_score(y, oof_lasso)
 r2_br = r2_score(y, oof_bayridge)
-r2_lgb2 = r2_score(y, oof_lgb2)
+r2_lgb_fair = r2_score(y, oof_lgb_fair)
 
-print(f"\nSingle model R²: XGB={r2_xgb:.4f} LGB={r2_lgb:.4f} LGB2={r2_lgb2:.4f} Ridge={r2_ridge:.4f} EN={r2_enet:.4f} Lasso={r2_lasso:.4f} BR={r2_br:.4f}")
+print(f"\nSingle R²: XGB={r2_xgb:.4f} LGB={r2_lgb:.4f} LGB_F={r2_lgb_fair:.4f} Ridge={r2_ridge:.4f} EN={r2_enet:.4f} Lasso={r2_lasso:.4f} BR={r2_br:.4f}")
 
 # Clip predictions
 y_lo, y_hi = np.percentile(y, 0.5), np.percentile(y, 99.5)
@@ -354,7 +354,7 @@ models = {
     'enet': np.clip(oof_enet, y_lo, y_hi),
     'lasso': np.clip(oof_lasso, y_lo, y_hi),
     'bayridge': np.clip(oof_bayridge, y_lo, y_hi),
-    'lgb2': np.clip(oof_lgb2, y_lo, y_hi),
+    'lgb_fair': np.clip(oof_lgb_fair, y_lo, y_hi),
 }
 model_names = list(models.keys())
 model_preds = np.column_stack([models[k] for k in model_names])
@@ -394,7 +394,7 @@ print(f"val_r2_ridge:     {r2_ridge:.6f}")
 print(f"val_r2_enet:      {r2_enet:.6f}")
 print(f"val_r2_lasso:     {r2_lasso:.6f}")
 print(f"val_r2_bayridge:  {r2_br:.6f}")
-print(f"val_r2_lgb2:      {r2_lgb2:.6f}")
+print(f"val_r2_lgb_fair:  {r2_lgb_fair:.6f}")
 print(f"blend_weights:    {w_str}")
 print(f"n_features:       {X_eng.shape[1]}")
 print(f"n_samples:        {n}")
