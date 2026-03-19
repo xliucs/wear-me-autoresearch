@@ -144,7 +144,7 @@ inv_log = np.expm1
 # ============================================================
 def make_xgb_params():
     return dict(
-        n_estimators=800, max_depth=3, learning_rate=0.015,
+        n_estimators=1500, max_depth=3, learning_rate=0.008,
         subsample=0.8, colsample_bytree=0.7,
         reg_alpha=0.5, reg_lambda=2.0, min_child_weight=5,
         random_state=SEED, n_jobs=-1
@@ -207,10 +207,10 @@ for fold_idx, (tr_idx, va_idx) in enumerate(splits):
         pred_lgb = inv_log(pred_lgb)
     oof_lgb[va_idx] = pred_lgb
 
-    # ElasticNet
+    # ElasticNet (with QT features for better linear fit)
     enet_model = ElasticNet(**make_elasticnet_params())
-    enet_model.fit(X_tr_sc, y_tr)
-    pred_enet = enet_model.predict(X_va_sc)
+    enet_model.fit(X_tr_qt, y_tr)
+    pred_enet = enet_model.predict(X_va_qt)
     if LOG_TARGET:
         pred_enet = inv_log(pred_enet)
     oof_enet[va_idx] = pred_enet
