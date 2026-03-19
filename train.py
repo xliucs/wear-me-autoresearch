@@ -39,8 +39,12 @@ X_all_raw, X_dw_raw, all_cols, dw_cols = get_feature_sets(X_df)
 splits = get_cv_splits(y)
 n = len(y)
 
+# Winsorize target for training (clip at 1st/99th percentile)
+y_clip_lo, y_clip_hi = np.percentile(y, 1), np.percentile(y, 99)
+y_train = np.clip(y, y_clip_lo, y_clip_hi)
+
 # Sample weights
-w = np.power(y, SAMPLE_WEIGHT_EXP)
+w = np.power(y_train, SAMPLE_WEIGHT_EXP)
 w = w / w.mean()
 
 # ============================================================
@@ -246,7 +250,7 @@ counts = np.zeros(n)
 
 for fold_idx, (tr_idx, va_idx) in enumerate(splits):
     X_tr, X_va = X_eng[tr_idx], X_eng[va_idx]
-    y_tr_raw, y_va_raw = y[tr_idx], y[va_idx]
+    y_tr_raw = y_train[tr_idx]
     w_tr = w[tr_idx]
 
     if LOG_TARGET:
