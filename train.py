@@ -12,7 +12,7 @@ warnings.filterwarnings('ignore')
 
 from prepare import load_data, get_feature_sets, get_cv_splits
 from sklearn.preprocessing import StandardScaler, QuantileTransformer, PowerTransformer
-from sklearn.linear_model import ElasticNet, Ridge, Lasso
+from sklearn.linear_model import ElasticNet, Ridge, Lasso, BayesianRidge
 from sklearn.metrics import r2_score
 from sklearn.ensemble import GradientBoostingRegressor
 import xgboost as xgb
@@ -198,10 +198,10 @@ inv_log = np.expm1
 # ============================================================
 def make_xgb_params():
     return dict(
-        n_estimators=1500, max_depth=4, learning_rate=0.008,
-        subsample=0.7, colsample_bytree=0.5,
-        reg_alpha=5.0, reg_lambda=20.0, min_child_weight=12,
-        gamma=15.0,
+        n_estimators=1200, max_depth=3, learning_rate=0.01,
+        subsample=0.8, colsample_bytree=0.6,
+        reg_alpha=2.0, reg_lambda=10.0, min_child_weight=8,
+        gamma=8.0,
         random_state=SEED, n_jobs=-1
     )
 
@@ -231,6 +231,7 @@ oof_lgb = np.zeros(n)
 oof_ridge = np.zeros(n)
 oof_enet = np.zeros(n)
 oof_lasso = np.zeros(n)
+oof_bayridge = np.zeros(n)
 counts = np.zeros(n)
 
 for fold_idx, (tr_idx, va_idx) in enumerate(splits):
@@ -288,6 +289,14 @@ for fold_idx, (tr_idx, va_idx) in enumerate(splits):
         pred_lasso = inv_log(pred_lasso)
     oof_lasso[va_idx] += pred_lasso
 
+    # BayesianRidge on PowerTransformed features
+    br_model = BayesianRidge(max_iter=500)
+    br_model.fit(X_tr_pt, y_tr)
+    pred_br = br_model.predict(X_va_pt)
+    if LOG_TARGET:
+        pred_br = inv_log(pred_br)
+    oof_bayridge[va_idx] += pred_br
+
     counts[va_idx] += 1
 
     if fold_idx % 5 == 4:
@@ -302,6 +311,7 @@ oof_lgb /= np.clip(counts, 1, None)
 oof_ridge /= np.clip(counts, 1, None)
 oof_enet /= np.clip(counts, 1, None)
 oof_lasso /= np.clip(counts, 1, None)
+oof_bayridge /= np.clip(counts, 1, None)
 
 # ============================================================
 # RESULTS
@@ -311,8 +321,9 @@ r2_lgb = r2_score(y, oof_lgb)
 r2_ridge = r2_score(y, oof_ridge)
 r2_enet = r2_score(y, oof_enet)
 r2_lasso = r2_score(y, oof_lasso)
+r2_br = r2_score(y, oof_bayridge)
 
-print(f"\nSingle model R²: XGB={r2_xgb:.4f} LGB={r2_lgb:.4f} Ridge={r2_ridge:.4f} EN={r2_enet:.4f} Lasso={r2_lasso:.4f}")
+print(f"\nSingle model R²: XGB={r2_xgb:.4f} LGB={r2_lgb:.4f} Ridge={r2_ridge:.4f} EN={r2_enet:.4f} Lasso={r2_lasso:.4f} BR={r2_br:.4f}")
 
 # Clip predictions
 y_lo, y_hi = np.percentile(y, 0.5), np.percentile(y, 99.5)
@@ -322,6 +333,7 @@ models = {
     'ridge': np.clip(oof_ridge, y_lo, y_hi),
     'enet': np.clip(oof_enet, y_lo, y_hi),
     'lasso': np.clip(oof_lasso, y_lo, y_hi),
+    'bayridge': np.clip(oof_bayridge, y_lo, y_hi),
 }
 model_names = list(models.keys())
 model_preds = np.column_stack([models[k] for k in model_names])
@@ -360,6 +372,7 @@ print(f"val_r2_lgb:       {r2_lgb:.6f}")
 print(f"val_r2_ridge:     {r2_ridge:.6f}")
 print(f"val_r2_enet:      {r2_enet:.6f}")
 print(f"val_r2_lasso:     {r2_lasso:.6f}")
+print(f"val_r2_bayridge:  {r2_br:.6f}")
 print(f"blend_weights:    {w_str}")
 print(f"n_features:       {X_eng.shape[1]}")
 print(f"n_samples:        {n}")
