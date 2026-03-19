@@ -187,7 +187,25 @@ def engineer_features(X_df, cols):
     for col_name, col_data in [('bmi', b), ('age', a), ('rhr', rhr_m), ('hrv', hrv_m), ('stp', stp_m)]:
         X[f'rank_{col_name}'] = col_data.rank(pct=True)
 
-    return X.fillna(0)
+    # === Piecewise BMI (different IR risk slopes by category) ===
+    X['bmi_under25'] = (b.clip(upper=25) - 18.5).clip(lower=0)
+    X['bmi_25_30'] = (b.clip(lower=25, upper=30) - 25)
+    X['bmi_over30'] = (b - 30).clip(lower=0)
+    X['bmi_over35'] = (b - 35).clip(lower=0)
+
+    # === Exponential BMI ===
+    X['bmi_exp'] = np.exp((b - 25) / 10)
+
+    # === Sleep quality ===
+    X['sleep_dev'] = np.abs(slp_m - 420)  # deviation from 7h in minutes
+    X['sleep_dev_sq'] = X['sleep_dev'] ** 2
+    X['sleep_dev_bmi'] = X['sleep_dev'] * b
+
+    # === Mean-median gaps × BMI (instability under metabolic load) ===
+    X['rhr_gap_bmi'] = (rhr_m - rhr_md) * b
+    X['hrv_gap_bmi'] = (hrv_m - hrv_md) * b
+
+    return X.fillna(0).replace([np.inf, -np.inf], 0)
 
 X_eng_full = engineer_features(X_df[dw_cols], dw_cols)
 eng_cols_full = X_eng_full.columns.tolist()
